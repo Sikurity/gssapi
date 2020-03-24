@@ -23,7 +23,9 @@ package gssapi
 
 #include <gssapi/gssapi.h>
 
-typedef const struct gss_name_struct *gss_const_name_t;
+#if !defined(GSSAPI_GSSAPI_H_)
+	typedef const struct gss_name_struct *gss_const_name_t;
+#endif
 
 OM_uint32
 wrap_gss_display_name(void *fp,
