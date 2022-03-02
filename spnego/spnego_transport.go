@@ -1,5 +1,3 @@
-// Copyright 2013-2015 Apcera Inc. All rights reserved.
-
 package spnego
 
 import (
@@ -8,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/apcera/gssapi"
+	"github.com/Sikurity/gssapi"
 )
 
 const negotiateScheme = "Negotiate"

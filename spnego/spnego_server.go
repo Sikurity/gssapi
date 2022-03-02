@@ -1,14 +1,10 @@
-// Copyright 2015 Apcera Inc. All rights reserved.
-
-// This is intended to give an interface for Kerberized servers to negotiate
-// with clients using SPNEGO. A reference implementation is provided below.
 package spnego
 
 import (
 	"errors"
 	"net/http"
 
-	"github.com/apcera/gssapi"
+	"github.com/Sikurity/gssapi"
 )
 
 // A ServerNegotiator is an interface that defines minimal functionality for

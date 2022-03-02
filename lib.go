@@ -1,7 +1,3 @@
-// Copyright 2013-2015 Apcera Inc. All rights reserved.
-
-// +build darwin linux freebsd
-
 package gssapi
 
 /*
@@ -9,7 +5,6 @@ package gssapi
 #cgo freebsd pkg-config: heimdal-gssapi
 
 #include <gssapi/gssapi.h>
-#include <dlfcn.h>
 #include <stdlib.h>
 
 // Name-Types.  These are standardized in the RFCs.  The library requires that
@@ -54,6 +49,12 @@ import (
 	"strings"
 	"unsafe"
 )
+
+type Loader interface {
+	Open(path string) (handle unsafe.Pointer, err error)
+	Close(handle unsafe.Pointer) (err error)
+	FuncHandle(handle unsafe.Pointer, cfuncName string) (symbol unsafe.Pointer, err error)
+}
 
 // Values for Options.LoadDefault
 const (
@@ -198,14 +199,16 @@ type constants struct {
 	GSS_C_NO_CHANNEL_BINDINGS ChannelBindings // implicitly initialized as nil
 }
 
-// Lib encapsulates both the GSSAPI and the library dlopen()'d for it. The
-// handle represents the dynamically-linked gssapi library handle.
+// Lib encapsulates both the GSSAPI and the dynamic linking library,
+// The handle represents the dynamically-linked gssapi library handle.
 type Lib struct {
 	LastStatus *Error
 
 	// Should contain a gssapi.Printer for each severity level to be
 	// logged, up to gssapi.MaxSeverity items
 	Printers []Printer
+
+	Loader Loader
 
 	handle unsafe.Pointer
 
@@ -244,6 +247,7 @@ func Load(o *Options) (*Lib, error) {
 	defer runtime.UnlockOSThread()
 
 	lib := &Lib{
+		Loader:   LoaderImpl{},
 		Printers: o.Printers,
 	}
 
@@ -263,17 +267,16 @@ func Load(o *Options) (*Lib, error) {
 
 	path := o.Path()
 	lib.Debug(fmt.Sprintf("Loading %q", path))
-	lib_cs := C.CString(path)
-	defer C.free(unsafe.Pointer(lib_cs))
 
 	// we don't use RTLD_FIRST, it might be the case that the GSSAPI lib
 	// delegates symbols to other libs it links against (eg, Kerberos)
-	lib.handle = C.dlopen(lib_cs, C.RTLD_NOW|C.RTLD_LOCAL)
-	if lib.handle == nil {
-		return nil, fmt.Errorf("%s", C.GoString(C.dlerror()))
+	var err error
+	lib.handle, err = lib.Loader.Open(path)
+	if err != nil {
+		return nil, err
 	}
 
-	err := lib.populateFunctions()
+	err = lib.populateFunctions()
 	if err != nil {
 		lib.Unload()
 		return nil, err
@@ -293,10 +296,7 @@ func (lib *Lib) Unload() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	i := C.dlclose(lib.handle)
-	if i == -1 {
-		return fmt.Errorf("%s", C.GoString(C.dlerror()))
-	}
+	lib.Loader.Close(lib.handle)
 
 	lib.handle = nil
 	return nil
@@ -330,16 +330,13 @@ func (lib *Lib) populateFunctions() error {
 				f.Name, fpPrefix)
 		}
 
-		// Resolve the symbol.
-		cfname := C.CString(f.Name[len(fpPrefix):])
-		v := C.dlsym(lib.handle, cfname)
-		C.free(unsafe.Pointer(cfname))
-		if v == nil {
-			return fmt.Errorf("%s", C.GoString(C.dlerror()))
+		sym, err := lib.Loader.FuncHandle(lib.handle, f.Name[len(fpPrefix):])
+		if err != nil {
+			return err
 		}
 
 		// Save the value into the struct
-		functionsV.FieldByIndex([]int{i}).SetPointer(v)
+		functionsV.FieldByIndex([]int{i}).SetPointer(sym)
 	}
 
 	return nil
